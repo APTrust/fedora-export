@@ -21,36 +21,47 @@ class APIImporter
     @base_url = 'http://localhost:3000'
   end
 
-  def import_objects
-    url = @base_url + '/api/v2/objects'
+  def import_objects(limit)
     query = "SELECT id, identifier, title, description, alt_identifier, " +
       "access, bag_name, institution_id, state FROM intellectual_objects"
+    query += " limit #{limit}" if limit
     @db.execute(query) do |row|
-      obj = {}
-      obj['intellectual_object[identifier]'] = row['identifier']
-      obj['intellectual_object[title]'] = row['title']
-      obj['intellectual_object[description]'] = row['description']
-      obj['intellectual_object[alt_identifier]'] = row['alt_identifier']
-      obj['intellectual_object[access]'] = row['access']
-      obj['intellectual_object[bag_name]'] = row['bag_name']
-      obj['intellectual_object[state]'] = row['state']
-
-      obj['intellectual_object[institution_id]'] = @new_id_for[row['institution_id']]
-      obj['intellectual_object[etag]'] = get_etag(row['id'])
-      obj['intellectual_object[created_at]'] = get_obj_create_time(row['id'])
-      obj['intellectual_object[dpn_uuid]'] = get_dpn_uuid(row['id'])
-
-      inst = @name_of[row['institution_id']]
-      full_url = "#{url}/#{inst}.json"
-      resp = api_post(full_url, obj)
-      if resp.code != '201'
-        puts "Error saving object #{obj['intellectual_object[identifier]']}"
-        puts resp.body
-        exit(1)
-      end
-      data = JSON.parse(resp.body)
-      puts "Saved #{obj['intellectual_object[identifier]']} with id #{data['id']}"
+      pid = row['id']
+      id = import_object(row)
+      @new_id_for[pid] = id
+      import_files(pid, row['identifier'])
+      puts "Saved object #{row['identifier']} with id #{id}"
     end
+  end
+
+  # Send one IntellectualObject record to Pharos through the API.
+  # Param row is a row of data selected from the db.
+  # Returns the id of the saved IntellectualObject.
+  def import_object(row)
+    obj = {}
+    obj['intellectual_object[identifier]'] = row['identifier']
+    obj['intellectual_object[title]'] = row['title']
+    obj['intellectual_object[description]'] = row['description']
+    obj['intellectual_object[alt_identifier]'] = row['alt_identifier']
+    obj['intellectual_object[access]'] = row['access']
+    obj['intellectual_object[bag_name]'] = row['bag_name']
+    obj['intellectual_object[state]'] = row['state']
+
+    obj['intellectual_object[institution_id]'] = @new_id_for[row['institution_id']]
+    obj['intellectual_object[etag]'] = get_etag(row['id'])
+    obj['intellectual_object[created_at]'] = get_obj_create_time(row['id'])
+    obj['intellectual_object[dpn_uuid]'] = get_dpn_uuid(row['id'])
+
+    inst = @name_of[row['institution_id']]
+    url = "#{@base_url}/api/v2/objects/#{inst}.json"
+    resp = api_post(url, obj)
+    if resp.code != '201'
+      puts "Error saving object #{obj['intellectual_object[identifier]']}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
   end
 
   def get_obj_create_time(object_pid)
@@ -95,19 +106,49 @@ class APIImporter
     dpn_uuid
   end
 
-  # Send one IntellectualObject record to Pharos through the API.
-  def import_object(obj_hash)
-
-  end
 
   # Import all GenericFiles through the REST API.
-  def import_files
-
+  # Param obj_pid is the Solr pid of the IntellectualObject
+  # whose files we want to import. Param obj_identifier is
+  # the intellectual object identifier. E.g. "test.edu/photo_collection"
+  def import_files(obj_pid, obj_identifier)
+    query = "SELECT id, file_format, uri, size, intellectual_object_id, " +
+      "identifier, created_at, updated_at FROM generic_files " +
+      "WHERE intellectual_object_id = ?"
+    @db.execute(query, obj_pid) do |row|
+      pid = row['id']
+      id = import_file(row, obj_identifier)
+      @new_id_for[pid] = id
+      #import_checksums(pid)
+      puts "  Saved file #{row['identifier']} with id #{id}"
+    end
   end
 
   # Import a single GenericFile through the REST API.
-  def import_file
+  # Param row is a row of GenericFile data from the SQL db.
+  # Param obj_identifier is the identifier of this
+  # file's parent object. E.g. "test.edu/photo_collection"
+  def import_file(row, obj_identifier)
+    obj_id = @new_id_for[row['intellectual_object_id']]
+    gf = {}
+    gf['generic_file[file_format]'] = row['file_format']
+    gf['generic_file[uri]'] = row['uri']
+    gf['generic_file[size]'] = row['size']
+    gf['generic_file[intellectual_object_id]'] = obj_id
+    gf['generic_file[identifier]'] = row['identifier']
+    gf['generic_file[created_at]'] = row['created_at']
+    gf['generic_file[updated_at]'] = row['updated_at']
 
+    escaped_identifier = URI.escape(obj_identifier).gsub('/', '%2F')
+    url = "#{@base_url}/files/#{escaped_identifier}"
+    resp = api_post(url, gf)
+    if resp.code != '201'
+      puts "Error saving file #{row['identifier']}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
   end
 
   # Import all Premis events through the REST API.
@@ -219,5 +260,5 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  importer.import_objects
+  importer.import_objects(10)
 end
