@@ -30,6 +30,7 @@ class APIImporter
       id = import_object(row)
       @new_id_for[pid] = id
       import_files(pid, row['identifier'])
+      import_events(pid, row['identifier'])
       puts "Saved object #{row['identifier']} with id #{id}"
     end
   end
@@ -106,7 +107,6 @@ class APIImporter
     dpn_uuid
   end
 
-
   # Import all GenericFiles through the REST API.
   # Param obj_pid is the Solr pid of the IntellectualObject
   # whose files we want to import. Param obj_identifier is
@@ -182,15 +182,53 @@ class APIImporter
     return data['id']
   end
 
-  # Import all Premis events through the REST API.
-  # Some of these need transformations.
-  def import_events
-
+  # Import Premis events through the REST API.
+  # Param obj_pid is the pid of the intellectual object
+  # to which this event belongs (even if it's a file-level
+  # event). Param obj_identifier is the intellectual
+  # object identifier.
+  def import_events(obj_pid, obj_identifier)
+    query = "select intellectual_object_id, institution_id, " +
+      "identifier, event_type, date_time, detail, " +
+      "outcome, outcome_detail, outcome_information, " +
+      "object, agent, generic_file_id, generic_file_identifier " +
+      "from premis_events_solr where intellectual_object_id = ?"
+    @db.execute(query, obj_pid) do |row|
+      id = import_event(row, obj_identifier)
+      puts "    Saved event #{row['event_type']} for #{row['identifier']} with id #{id}"
+    end
   end
 
   # Import a single Premis event through the REST API.
-  def import_event
+  def import_event(row, obj_identifier)
+    obj_id = @new_id_for[row['intellectual_object_id']]
+    gf_id = @new_id_for[row['generic_file_id']]
+    inst_id = @new_id_for[row['institution_id']]
+    event = {}
+    event['intellectual_object_id'] = obj_id
+    event['generic_file_id'] = gf_id
+    event['institution_id'] = inst_id
+    event['identifier'] = row['identifier']
+    event['event_type'] = row['event_type']
+    event['date_time'] = row['date_time']
+    event['detail'] = row['detail']
+    event['outcome'] = row['outcome']
+    event['outcome_detail'] = row['outcome_detail']
+    event['outcome_information'] = row['outcome_information']
+    event['object'] = row['object']
+    event['agent'] = row['agent']
+    event['generic_file_identifier'] = row['generic_file_identifier']
+    event['intellectual_object_identifier'] = obj_identifier
 
+    url = "#{@base_url}/api/v2/events"
+    resp = api_post_json(url, event.to_json)
+    if resp.code != '201'
+      puts "Error saving event #{event['identifier']}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
   end
 
   # Import all WorkItems through the REST API.
@@ -254,6 +292,16 @@ class APIImporter
     end
   end
 
+  def api_post_json(url, json_string)
+    uri = URI(url)
+    Net::HTTP.start(uri.host, uri.port) do |http|
+      request = Net::HTTP::Post.new(uri)
+      set_headers(request)
+      request.body = json_string
+      http.request(request)
+    end
+  end
+
   def api_put(url, hash)
     uri = URI(url)
     Net::HTTP.start(uri.host, uri.port) do |http|
@@ -281,5 +329,5 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  importer.import_objects(10)
+  importer.import_objects(5)
 end
