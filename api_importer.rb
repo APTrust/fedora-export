@@ -19,6 +19,7 @@ class APIImporter
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
     @base_url = 'http://localhost:3000'
+    @id_for_name = {}
   end
 
   def import_objects(limit)
@@ -29,6 +30,7 @@ class APIImporter
       pid = row['id']
       id = import_object(row)
       @new_id_for[pid] = id
+      @id_for_name[row['identifier']] = id
       import_files(pid, row['identifier'])
       import_events(pid, row['identifier'])
       puts "Saved object #{row['identifier']} with id #{id}"
@@ -119,6 +121,7 @@ class APIImporter
       pid = row['id']
       id = import_file(row, obj_identifier)
       @new_id_for[pid] = id
+      @id_for_name[row['identifier']] = id
       import_checksums(pid, row['identifier'])
       puts "  Saved file #{row['identifier']} with id #{id}"
     end
@@ -232,13 +235,58 @@ class APIImporter
   end
 
   # Import all WorkItems through the REST API.
-  def import_work_items
-
+  def import_work_items(how_many)
+    query = "SELECT id, created_at, updated_at, name, etag, bucket, " +
+      "user, institution, note, action, stage, status, outcome, " +
+      "bag_date, date, retry, reviewed, object_identifier, " +
+      "generic_file_identifier, state, node, pid, needs_admin_review " +
+      "FROM processed_items"
+    query += " limit #{how_many}" if how_many
+    @db.execute(query) do |row|
+      id = import_work_item(row)
+      puts "Saved ProcessedItem #{row['id']} as WorkItem #{id}"
+    end
   end
 
   # Import a single WorkItem through the REST API.
-  def import_work_item
+  def import_work_item(row)
+    inst_name = row['object_identifier'].split('/')[0]
+    item = {}
+    item['created_at'] = row['created_at']
+    item['updated_at'] = row['updated_at']
+    item['intellectual_object_id'] = @id_for_name[row['object_identifier']]
+    item['generic_file_id'] = @id_for_name[row['generic_file_identifier']]
+    item['name'] = row['name']
+    item['etag'] = row['etag']
+    item['bucket'] = row['bucket']
+    item['user'] = row['user']
+    item['note'] = row['note']
+    item['action'] = row['action']
+    item['stage'] = row['stage']
+    item['status'] = row['status']
+    item['outcome'] = row['outcome']
+    item['bag_date'] = row['bag_date']
+    item['date'] = row['date']
+    item['retry'] = row['retry']
+    item['object_identifier'] = row['object_identifier']
+    item['generic_file_identifier'] = row['generic_file_identifier']
+    item['node'] = row['node']
+    item['pid'] = row['pid']
+    item['needs_admin_review'] = row['needs_admin_review']
+    item['institution_id'] = @id_for_name[inst_name]
+    item['queued_at'] = nil
+    item['size'] = nil
+    item['stage_started_at'] = nil
 
+    url = "#{@base_url}/api/v2/items"
+    resp = api_post_json(url, item.to_json)
+    if resp.code != '201'
+      puts "Error saving WorkItem #{item['id']}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
   end
 
   # Import WorkItemState for one WorkItem through the REST API.
@@ -251,7 +299,7 @@ class APIImporter
     pid_for = {}
     query = "select id, identifier from institutions"
     @db.execute(query) do |row|
-      # pids['miami.edu'] = 'aptrust-test:350660'
+      # Sample entry: pids['miami.edu'] = 'aptrust-test:350660'
       pid_for[row['identifier']] = row['id']
       @name_of[row['id']] = row['identifier']
     end
@@ -268,6 +316,7 @@ class APIImporter
     data['results'].each do |inst|
       solr_pid = pid_for[inst['identifier']]
       @new_id_for[solr_pid] = inst['id']
+      @id_for_name[inst['identifier']] = inst['id']
       puts "#{inst['identifier']} has id #{inst['id']}"
     end
   end
@@ -329,5 +378,6 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  importer.import_objects(5)
+  importer.import_objects(nil)
+  importer.import_work_items(nil)
 end
