@@ -81,7 +81,6 @@ schema
         puts "Invalid record: #{record}"
       end
     end
-    return
     statement = "insert into premis_events_solr (
          intellectual_object_id,
          generic_file_id,
