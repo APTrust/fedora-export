@@ -119,7 +119,7 @@ class APIImporter
       pid = row['id']
       id = import_file(row, obj_identifier)
       @new_id_for[pid] = id
-      #import_checksums(pid)
+      import_checksums(pid, row['identifier'])
       puts "  Saved file #{row['identifier']} with id #{id}"
     end
   end
@@ -151,6 +151,37 @@ class APIImporter
     return data['id']
   end
 
+  # Import checksums through the REST API.
+  # Param gf_pid is the pid of the GenericFile whose checksums
+  # we want to save.
+  def import_checksums(gf_pid, gf_identifier)
+    query = "SELECT algorithm, datetime, digest, generic_file_id " +
+      "FROM checksums where generic_file_id = ?"
+    @db.execute(query, gf_pid) do |row|
+      id = import_checksum(row, gf_identifier)
+      puts "    Saved checksum #{row['algorithm']} #{row['digest']}"
+    end
+  end
+
+  # Import a single checksum through the REST API.
+  def import_checksum(row, gf_identifier)
+    cs = {}
+    cs['checksum[algorithm]'] = row['algorithm']
+    cs['checksum[datetime]'] = row['datetime']
+    cs['checksum[digest]'] = row['digest']
+
+    escaped_identifier = URI.escape(gf_identifier).gsub('/', '%2F')
+    url = "#{@base_url}/api/v2/checksums/#{escaped_identifier}"
+    resp = api_post(url, cs)
+    if resp.code != '201'
+      puts "Error saving checksum #{row['algorithm']} for #{gf_identifier}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
+  end
+
   # Import all Premis events through the REST API.
   # Some of these need transformations.
   def import_events
@@ -159,16 +190,6 @@ class APIImporter
 
   # Import a single Premis event through the REST API.
   def import_event
-
-  end
-
-  # Import all checksums through the REST API.
-  def import_checksums
-
-  end
-
-  # Import a single checksum through the REST API.
-  def import_checksum
 
   end
 
