@@ -1,5 +1,6 @@
-require 'sqlite3'
+require 'json'
 require 'net/http'
+require 'sqlite3'
 
 # APIImporter imports data from the SQLite database (which is a dump
 # of our old Fedora data) into Pharos through the API. In order for
@@ -16,10 +17,7 @@ class APIImporter
     @db = SQLite3::Database.new("fedora_export.db")
     @db.results_as_hash = true
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
-  end
-
-  def load_institutions
-    # Load institutions from Pharos and map name to new id
+    @base_url = 'http://localhost:3000'
   end
 
   def import_objects
@@ -137,6 +135,66 @@ class APIImporter
 
   end
 
+  def load_institutions
+    # Get Solr institution pids from the SQL db.
+    pid_for = {}
+    query = "select id, identifier from institutions"
+    @db.execute(query) do |row|
+      # pids['miami.edu'] = 'aptrust-test:350660'
+      pid_for[row['identifier']] = row['id']
+    end
+
+    # Load institutions from Pharos and map old Solr pid to new id
+    url = @base_url + '/api/v2/institutions'
+    resp = api_get(url, nil)
+    if resp.code != '200'
+      puts "Error getting institutions from Pharos"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    data['results'].each do |inst|
+      solr_pid = pid_for[inst['identifier']]
+      @new_id_for[solr_pid] = inst['id']
+      puts "#{inst['identifier']} has id #{inst['id']}"
+    end
+  end
+
+  def api_get(url, params)
+    uri = URI(url)
+    uri.query = URI.encode_www_form(params) unless params.nil?
+    Net::HTTP.start(uri.host, uri.port) do |http|
+      request = Net::HTTP::Get.new(uri)
+      set_headers(request)
+      http.request(request)
+    end
+  end
+
+  def api_post(url, json_data)
+    uri = URI(url)
+    Net::HTTP.start(uri.host, uri.port) do |http|
+      request = Net::HTTP::Post.new(uri, json_data)
+      set_headers(request)
+      http.request(request)
+    end
+  end
+
+  def api_put(url, json_data)
+    uri = URI(url)
+    Net::HTTP.start(uri.host, uri.port) do |http|
+      request = Net::HTTP::Put.new(uri, json_data)
+      set_headers(request)
+      http.request(request)
+    end
+  end
+
+  def set_headers(request)
+    request['Content-Type'] = 'application/json'
+    request['Accept'] = 'application/json'
+    request['X-Pharos-API-User'] = 'system@aptrust.org'
+    request['X-Pharos-API-Key'] = @api_key
+  end
+
 end
 
 if __FILE__ == $0
@@ -147,5 +205,6 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
+  importer.load_institutions
   importer.import_objects
 end

@@ -17,3 +17,23 @@ The basic migration process is:
    ensure that all that data (~300,000 records) actually *can* be pushed through
    the REST API. For the live server, all data will be imported through the
    rake task (several million records).
+
+
+# Demo migration
+
+Change into the Pharos directory, then run this:
+
+```
+bundle exec rake pharos:empty_db
+bundle exec rake pharos:transition_Fluctus
+```
+
+In rails console, run this:
+
+```
+admin = User.where(email: 'system@aptrust.org').first
+admin.password = 'password'
+admin.save
+```
+
+Then make sure you can log in as system@aptrust.org at localhost:3000.
