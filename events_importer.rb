@@ -68,8 +68,20 @@ schema
     end
   end
 
+  # Copy an event record into DB table premis_events_solr
   def copy_event(record)
-    data = eval(record)
+    data = nil
+    begin
+      data = eval(record)
+    rescue Exception => ex
+      if record.include?("facet_") || record == '}'
+        # Reached end of data
+        return
+      else
+        puts "Invalid record: #{record}"
+      end
+    end
+    return
     statement = "insert into premis_events_solr (
          intellectual_object_id,
          generic_file_id,
