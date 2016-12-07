@@ -17,28 +17,39 @@ class APIImporter
     @db = SQLite3::Database.new("fedora_export.db")
     @db.results_as_hash = true
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
+    @name_of = {} # Hash: key is Solr pid, value is institution domain name
     @base_url = 'http://localhost:3000'
   end
 
   def import_objects
+    url = @base_url + '/api/v2/objects'
     query = "SELECT id, identifier, title, description, alt_identifier, " +
-      "access, bag_name, institution_id, state FROM intellectual_objects limit 10"
+      "access, bag_name, institution_id, state FROM intellectual_objects"
     @db.execute(query) do |row|
       obj = {}
-      obj['identifier'] = row['identifier']
-      obj['title'] = row['title']
-      obj['description'] = row['description']
-      obj['alt_identifier'] = row['alt_identifier']
-      obj['access'] = row['identifier']
-      obj['bag_name'] = row['identifier']
-      obj['state'] = row['state']
+      obj['intellectual_object[identifier]'] = row['identifier']
+      obj['intellectual_object[title]'] = row['title']
+      obj['intellectual_object[description]'] = row['description']
+      obj['intellectual_object[alt_identifier]'] = row['alt_identifier']
+      obj['intellectual_object[access]'] = row['access']
+      obj['intellectual_object[bag_name]'] = row['bag_name']
+      obj['intellectual_object[state]'] = row['state']
 
-      obj['institution_id'] = @new_id_for[row['institution_id']]
-      obj['etag'] = get_etag(row['id'])
-      obj['created_at'] = get_obj_create_time(row['id'])
-      obj['dpn_uuid'] = get_dpn_uuid(row['id'])
+      obj['intellectual_object[institution_id]'] = @new_id_for[row['institution_id']]
+      obj['intellectual_object[etag]'] = get_etag(row['id'])
+      obj['intellectual_object[created_at]'] = get_obj_create_time(row['id'])
+      obj['intellectual_object[dpn_uuid]'] = get_dpn_uuid(row['id'])
 
-      puts obj
+      inst = @name_of[row['institution_id']]
+      full_url = "#{url}/#{inst}.json"
+      resp = api_post(full_url, obj)
+      if resp.code != '201'
+        puts "Error saving object #{obj['intellectual_object[identifier]']}"
+        puts resp.body
+        exit(1)
+      end
+      data = JSON.parse(resp.body)
+      puts "Saved #{obj['intellectual_object[identifier]']} with id #{data['id']}"
     end
   end
 
@@ -85,7 +96,7 @@ class APIImporter
   end
 
   # Send one IntellectualObject record to Pharos through the API.
-  def import_object
+  def import_object(obj_hash)
 
   end
 
@@ -142,6 +153,7 @@ class APIImporter
     @db.execute(query) do |row|
       # pids['miami.edu'] = 'aptrust-test:350660'
       pid_for[row['identifier']] = row['id']
+      @name_of[row['id']] = row['identifier']
     end
 
     # Load institutions from Pharos and map old Solr pid to new id
@@ -170,20 +182,21 @@ class APIImporter
     end
   end
 
-  def api_post(url, json_data)
+  def api_post(url, hash)
     uri = URI(url)
     Net::HTTP.start(uri.host, uri.port) do |http|
-      request = Net::HTTP::Post.new(uri, json_data)
+      request = Net::HTTP::Post.new(uri)
       set_headers(request)
+      request.set_form_data(hash)
       http.request(request)
     end
   end
 
-  def api_put(url, json_data)
+  def api_put(url, hash)
     uri = URI(url)
     Net::HTTP.start(uri.host, uri.port) do |http|
-      request = Net::HTTP::Put.new(uri, json_data)
       set_headers(request)
+      request = Net::HTTP::Put.new(uri, hash)
       http.request(request)
     end
   end
