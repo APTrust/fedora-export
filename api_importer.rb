@@ -255,7 +255,12 @@ class APIImporter
 
   # Import a single WorkItem through the REST API.
   def import_work_item(row)
-    inst_name = row['object_identifier'].split('/')[0]
+    inst_name = nil
+    if !row['object_identifier'].nil? && row['object_identifier'] != ''
+      inst_name = row['object_identifier'].split('/')[0]
+    elsif !row['bucket'].nil? && row['bucket'] != ''
+      inst_name = row['bucket'].sub('aptrust.receiving.test.', '')
+    end
     item = {}
     item['created_at'] = row['created_at']
     item['updated_at'] = row['updated_at']
@@ -398,6 +403,6 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  importer.import_objects(nil)
+  #importer.import_objects(nil)
   importer.import_work_items(nil)
 end
