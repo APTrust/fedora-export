@@ -245,6 +245,11 @@ class APIImporter
     @db.execute(query) do |row|
       id = import_work_item(row)
       puts "Saved ProcessedItem #{row['id']} as WorkItem #{id}"
+      # Save state only for problem items.
+      if row['status'] != 'Success' && row['status'] != 'Cancelled' && !row['state'].nil? && row['state'] != ''
+        state_id = import_work_item_state(row, id)
+        puts "  Saved state for ProcessedItem #{row['id']} as WorkItemState #{state_id}"
+      end
     end
   end
 
@@ -290,8 +295,23 @@ class APIImporter
   end
 
   # Import WorkItemState for one WorkItem through the REST API.
-  def import_work_item_state
+  def import_work_item_state(row, work_item_id)
+    state = {}
+    state['work_item_id'] = work_item_id
+    state['action'] = row['action']
+    state['state'] = row['state']
+    #state['created_at'] = row['created_at']
+    #state['updated_at'] = row['updated_at']
 
+    url = "#{@base_url}/api/v2/item_state"
+    resp = api_post_json(url, item.to_json)
+    if resp.code != '201'
+      puts "Error saving WorkItem #{item['id']}"
+      puts resp.body
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
   end
 
   def load_institutions
