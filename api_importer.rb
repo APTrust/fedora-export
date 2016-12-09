@@ -309,7 +309,7 @@ class APIImporter
     #state['updated_at'] = row['updated_at']
 
     url = "#{@base_url}/api/v2/item_state"
-    resp = api_post_json(url, item.to_json)
+    resp = api_post_json(url, state.to_json)
     if resp.code != '201'
       puts "Error saving WorkItem #{item['id']}"
       puts resp.body
