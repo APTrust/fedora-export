@@ -1,5 +1,6 @@
 require 'json'
 require 'net/http'
+require 'openssl'
 require 'sqlite3'
 
 # APIImporter imports data from the SQLite database (which is a dump
@@ -14,11 +15,11 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("solr_dump/fedora_export.db")
+    @db = SQLite3::Database.new("../export/fedora_export.db")
     @db.results_as_hash = true
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    @base_url = 'http://localhost:3000'
+    @base_url = 'https://demo.aptrust.org:443'
     @id_for_name = {}
   end
 
@@ -353,9 +354,11 @@ class APIImporter
   end
 
   def api_get(url, params)
+    is_https = url.start_with?('https')
     uri = URI(url)
     uri.query = URI.encode_www_form(params) unless params.nil?
-    Net::HTTP.start(uri.host, uri.port) do |http|
+    Net::HTTP.start(uri.host, uri.port, use_ssl: is_https,
+                    verify_mode: OpenSSL::SSL::VERIFY_NONE) do |http|
       request = Net::HTTP::Get.new(uri)
       set_headers(request)
       http.request(request)
@@ -363,8 +366,10 @@ class APIImporter
   end
 
   def api_post(url, hash)
+    is_https = url.start_with?('https')
     uri = URI(url)
-    Net::HTTP.start(uri.host, uri.port) do |http|
+    Net::HTTP.start(uri.host, uri.port, use_ssl: is_https,
+                    verify_mode: OpenSSL::SSL::VERIFY_NONE) do |http|
       request = Net::HTTP::Post.new(uri)
       set_headers(request)
       request.set_form_data(hash)
@@ -373,8 +378,10 @@ class APIImporter
   end
 
   def api_post_json(url, json_string)
+    is_https = url.start_with?('https')
     uri = URI(url)
-    Net::HTTP.start(uri.host, uri.port) do |http|
+    Net::HTTP.start(uri.host, uri.port, use_ssl: is_https,
+                    verify_mode: OpenSSL::SSL::VERIFY_NONE) do |http|
       request = Net::HTTP::Post.new(uri)
       set_headers(request)
       request.body = json_string
@@ -383,8 +390,10 @@ class APIImporter
   end
 
   def api_put(url, hash)
+    is_https = url.start_with?('https')
     uri = URI(url)
-    Net::HTTP.start(uri.host, uri.port) do |http|
+    Net::HTTP.start(uri.host, uri.port, use_ssl: is_https,
+                    verify_mode: OpenSSL::SSL::VERIFY_NONE) do |http|
       set_headers(request)
       request = Net::HTTP::Put.new(uri, hash)
       http.request(request)
@@ -409,6 +418,6 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  importer.import_objects(nil)
-  importer.import_work_items(nil)
+  #importer.import_objects(nil)
+  #importer.import_work_items(nil)
 end
