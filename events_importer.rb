@@ -11,11 +11,11 @@ require 'sqlite3'
 class Importer
 
   def initialize
-    @db = SQLite3::Database.new("fedora_export.db")
+    @db = SQLite3::Database.new("/Users/apd4n/Downloads/export/fedora_export.db")
   end
 
   def drop_table
-    @db.execute("drop table premis_events_solr")
+    @db.execute("drop table if exists premis_events_solr")
   end
 
   def make_tables
@@ -52,7 +52,8 @@ schema
     # so we'll parse it one record at a time.
     found_response = false
     record = ''
-    File.open('solr_dump/events.rb').each do |line|
+    count = 0
+    File.open('/Users/apd4n/Downloads/export/events.rb').each do |line|
       if !found_response
         if line.strip.start_with?("'response'=>")
           found_response = true
@@ -64,6 +65,10 @@ schema
       if stripped.end_with?('},') || stripped.end_with?('}]')
         copy_event(record.chop) # remove trailing comma
         record = ''
+        count += 1
+        if count % 1000 == 0
+          puts count
+        end
       end
     end
   end
