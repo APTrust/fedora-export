@@ -14,7 +14,7 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("fedora_export.db")
+    @db = SQLite3::Database.new("solr_dump/fedora_export.db")
     @db.results_as_hash = true
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
@@ -215,7 +215,7 @@ class APIImporter
     event['event_type'] = row['event_type']
     event['date_time'] = row['date_time']
     event['detail'] = row['detail']
-    event['outcome'] = row['outcome']
+    event['outcome'] = ucfirst(row['outcome'])
     event['outcome_detail'] = row['outcome_detail']
     event['outcome_information'] = row['outcome_information']
     event['object'] = row['object']
@@ -246,7 +246,7 @@ class APIImporter
       id = import_work_item(row)
       puts "Saved ProcessedItem #{row['id']} as WorkItem #{id}"
       # Save state only for problem items.
-      if row['status'] != 'Success' && row['status'] != 'Cancelled' && !row['state'].nil? && row['state'] != ''
+      if !row['state'].nil? && row['state'] != ''
         state_id = import_work_item_state(row, id)
         puts "  Saved state for ProcessedItem #{row['id']} as WorkItemState #{state_id}"
       end
@@ -273,7 +273,7 @@ class APIImporter
     item['note'] = row['note']
     item['action'] = row['action']
     item['stage'] = row['stage']
-    item['status'] = row['status']
+    item['status'] = ucfirst(row['status'])
     item['outcome'] = row['outcome']
     item['bag_date'] = row['bag_date']
     item['date'] = row['date']
@@ -305,8 +305,6 @@ class APIImporter
     state['work_item_id'] = work_item_id
     state['action'] = row['action']
     state['state'] = row['state']
-    #state['created_at'] = row['created_at']
-    #state['updated_at'] = row['updated_at']
 
     url = "#{@base_url}/api/v2/item_state"
     resp = api_post_json(url, state.to_json)
@@ -317,6 +315,14 @@ class APIImporter
     end
     data = JSON.parse(resp.body)
     return data['id']
+  end
+
+  # Converts the first letter of string to upper case.
+  def ucfirst(string)
+    if !string.nil? && string != ''
+      string[0] = string[0,1].upcase
+    end
+    string
   end
 
   def load_institutions
@@ -403,6 +409,6 @@ if __FILE__ == $0
   end
   importer = APIImporter.new(api_key)
   importer.load_institutions
-  #importer.import_objects(nil)
+  importer.import_objects(nil)
   importer.import_work_items(nil)
 end
