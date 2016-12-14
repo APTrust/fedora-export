@@ -15,12 +15,26 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("../export/fedora_export.db")
+    @db = SQLite3::Database.new("solr_dump/fedora_export.db")
     @db.results_as_hash = true
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    @base_url = 'https://demo.aptrust.org:443'
+    #@base_url = 'https://demo.aptrust.org:443'
+    @base_url = 'http://localhost:3000'
     @id_for_name = {}
+  end
+
+  def create_indexes
+    @db.execute("create index if not exists ix_gf_obj_id " +
+                "on generic_files(intellectual_object_id)")
+    @db.execute("create index if not exists ix_cs_gf_id " +
+                "on checksums(generic_file_id)")
+    @db.execute("create index if not exists ix_items_obj_identifier " +
+                "on processed_items(object_identifier)")
+    @db.execute("create index if not exists ix_event_obj_id " +
+                "on premis_events_solr(intellectual_object_id)")
+    @db.execute("create index if not exists ix_event_gf_id " +
+                "on premis_events_solr(generic_file_id)")
   end
 
   def import_objects(limit)
@@ -140,6 +154,7 @@ class APIImporter
     gf['generic_file[size]'] = row['size']
     gf['generic_file[intellectual_object_id]'] = obj_id
     gf['generic_file[identifier]'] = row['identifier']
+    gf['generic_file[state]'] = row['state']
     gf['generic_file[created_at]'] = row['created_at']
     gf['generic_file[updated_at]'] = row['updated_at']
 
@@ -417,7 +432,8 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
+  importer.create_indexes
   importer.load_institutions
-  #importer.import_objects(nil)
-  #importer.import_work_items(nil)
+  importer.import_objects(nil)
+  importer.import_work_items(nil)
 end
