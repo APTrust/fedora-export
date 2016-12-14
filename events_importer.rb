@@ -11,7 +11,7 @@ require 'sqlite3'
 class Importer
 
   def initialize
-    @db = SQLite3::Database.new("/Users/apd4n/Downloads/export/fedora_export.db")
+    @db = SQLite3::Database.new("solr_dump/fedora_export.db")
   end
 
   def drop_table
@@ -53,7 +53,7 @@ schema
     found_response = false
     record = ''
     count = 0
-    File.open('/Users/apd4n/Downloads/export/events.rb').each do |line|
+    File.open('solr_dump/events.rb').each do |line|
       if !found_response
         if line.strip.start_with?("'response'=>")
           found_response = true
