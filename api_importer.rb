@@ -416,7 +416,7 @@ class APIImporter
   end
 
   def set_headers(request)
-    request['Content-Type'] = 'application/json'
+    request['Content-Type'] = 'application/json; charset=utf-8'
     request['Accept'] = 'application/json'
     request['X-Pharos-API-User'] = 'system@aptrust.org'
     request['X-Pharos-API-Key'] = @api_key
