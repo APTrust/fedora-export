@@ -9,7 +9,8 @@ class SolrExporter
 
   def initialize(path_to_db)
     @db = SQLite3::Database.new(path_to_db)
-    @base_url = "http://54.172.115.2:8080/solr/production/select"
+    # @base_url = "http://54.172.115.2:8080/solr/production/select"
+    @base_url = "http://localhost:8080/solr/production/select"
     @batch_size = 1000
     @obj_start = 0
     @file_start = 0
@@ -60,7 +61,7 @@ class SolrExporter
       end
       insert_files(file_list)
       @file_start += @batch_size
-      puts "Files: #{file_start}"
+      puts "Files: #{@file_start}"
     end
   end
 
