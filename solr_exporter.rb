@@ -10,7 +10,7 @@ class SolrExporter
   def initialize(path_to_db)
     @db = SQLite3::Database.new(path_to_db)
     @base_url = "http://54.172.115.2:8080/solr/production/select"
-    @batch_size = 100
+    @batch_size = 1000
     @obj_start = 0
     @file_start = 0
     @event_start = 0
@@ -42,6 +42,7 @@ class SolrExporter
       end
       insert_objects(obj_list)
       @obj_start += @batch_size
+      puts "Objects: #{@obj_start}"
     end
   end
 
@@ -59,6 +60,7 @@ class SolrExporter
       end
       insert_files(file_list)
       @file_start += @batch_size
+      puts "Files: #{file_start}"
     end
   end
 
@@ -75,7 +77,8 @@ class SolrExporter
         break
       end
       insert_events(event_list)
-      @file_start += @batch_size
+      @event_start += @batch_size
+      puts "Events: #{@event_start}"
     end
   end
 
