@@ -173,14 +173,8 @@ class SolrExporter
     # Restricted  = discover: 1, read: 0, edit: 1
     # Institution = discover: 0, read: 1, edit: 1
     # Consortia   = discover: 0, read: 2, edit: 1
-    discover = get_value(object_data, 'discover_access_group_ssim')
-    return 'restricted' if discover
     read = object_data['read_access_group_ssim']
-    if read.nil? || read.length < 1 || read.length > 2
-      puts "Can't figure out access for #{obj_data['desc_metadata__identifier_ssim']}"
-      puts read
-      exit(1)
-    end
+    return 'restricted' if read.nil? || read.length == 0
     return 'institution' if read.length == 1
     return 'consortia' if read.length == 2
   end
