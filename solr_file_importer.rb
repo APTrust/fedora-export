@@ -23,9 +23,17 @@ require 'sqlite3'
 # We only get objects, files, and events from Solr.
 # All else comes from `rbenv exec export:export_checksums[fedora_export.db]`
 #
-# wget "https://repository.aptrust.org:8080/solr/demo/select?q=event_type_ssim%3A*&start=0&rows=2000000000&wt=ruby&indent=true" -O solr_dump/events.rb
-# wget "https://repository.aptrust.org:8080/solr/demo/select?q=has_model_ssim%3A%22info%3Afedora%2Fafmodel%3AGenericFile%22&start=0&rows=200000000&wt=ruby&indent=true" -O solr_dump/files.rb
-# wget "https://repository.aptrust.org:8080/solr/demo/select?q=has_model_ssim%3A%22info%3Afedora%2Fafmodel%3AIntellectualObject%22&start=0&rows=200000000&wt=ruby&indent=true" -O solr_dump/objects.rb
+# Counts as of 12/18/2016:
+#
+# wget "http://repository.aptrust.org:8080/solr/production/select?q=event_type_ssim%3A*&start=0&rows=2000000000&wt=ruby&indent=true" -O events.rb
+# > grep event_identifier_ssim events.rb | wc -l
+# > 9299586
+# wget "http://repository.aptrust.org:8080/solr/production/select?q=has_model_ssim%3A%22info%3Afedora%2Fafmodel%3AGenericFile%22&start=0&rows=200000000&wt=ruby&indent=true" -O files.rb
+# > grep "'active_fedora_model_ssi'=>'GenericFile'" files.rb | wc -l
+# > 825146
+# wget "http://repository.aptrust.org:8080/solr/production/select?q=has_model_ssim%3A%22info%3Afedora%2Fafmodel%3AIntellectualObject%22&start=0&rows=200000000&wt=ruby&indent=true" -O objects.rb
+# > grep "'active_fedora_model_ssi'=>'IntellectualObject'" objects.rb | wc -l
+# > 114522
 
 class SolrFileImporter
 
