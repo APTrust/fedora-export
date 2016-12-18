@@ -34,6 +34,14 @@ require 'sqlite3'
 # wget "http://repository.aptrust.org:8080/solr/production/select?q=has_model_ssim%3A%22info%3Afedora%2Fafmodel%3AIntellectualObject%22&start=0&rows=200000000&wt=ruby&indent=true" -O objects.rb
 # > grep "'active_fedora_model_ssi'=>'IntellectualObject'" objects.rb | wc -l
 # > 114522
+#
+#
+# Time to export ~10 million records using various methods,
+# all on the same hardware:
+#
+# via Solr file dump (this script):                     ~12 minutes
+# via Solr API, looping through records 1000 at a time: ~16 hours
+# via Hydra/ActiveFedora rake task:                     Never (would be ~120 hours, if it didn't crash all the time)
 
 class SolrFileImporter
 
