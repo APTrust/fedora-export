@@ -21,6 +21,7 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
+    @log = File.open('/mnt/aptrust/data/import.log', 'w')
     @db = SQLite3::Database.new("/mnt/aptrust/data/solr_dump.db")
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
@@ -29,6 +30,7 @@ class APIImporter
     # @base_url = 'https://demo.aptrust.org:443'
     @base_url = 'http://localhost:3000'
     @id_for_name = {}
+    @log.close
   end
 
   def create_indexes
@@ -87,8 +89,8 @@ class APIImporter
     url = "#{@base_url}/api/v2/objects/#{inst}.json"
     resp = api_post(url, obj)
     if resp.code != '201'
-      puts "Error saving object #{obj['intellectual_object[identifier]']}"
-      puts resp.body
+      @log.write("Error saving object #{obj['intellectual_object[identifier]']}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -193,8 +195,8 @@ class APIImporter
     url = "#{@base_url}/files/#{escaped_identifier}"
     resp = api_post(url, gf)
     if resp.code != '201'
-      puts "Error saving file #{row['identifier']}"
-      puts resp.body
+      @log.write("Error saving file #{row['identifier']}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -228,8 +230,8 @@ class APIImporter
     url = "#{@base_url}/api/v2/checksums/#{escaped_identifier}"
     resp = api_post(url, cs)
     if resp.code != '201'
-      puts "Error saving checksum #{row['algorithm']} for #{gf_identifier}"
-      puts resp.body
+      @log.write("Error saving checksum #{row['algorithm']} for #{gf_identifier}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -281,8 +283,8 @@ class APIImporter
     url = "#{@base_url}/api/v2/events"
     resp = api_post_json(url, event.to_json)
     if resp.code != '201'
-      puts "Error saving event #{event['identifier']}"
-      puts resp.body
+      @log.write("Error saving event #{event['identifier']}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -350,8 +352,8 @@ class APIImporter
     url = "#{@base_url}/api/v2/items"
     resp = api_post_json(url, item.to_json)
     if resp.code != '201'
-      puts "Error saving WorkItem #{item['id']}"
-      puts resp.body
+      @log.write("Error saving WorkItem #{item['id']}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -368,8 +370,8 @@ class APIImporter
     url = "#{@base_url}/api/v2/item_state"
     resp = api_post_json(url, state.to_json)
     if resp.code != '201'
-      puts "Error saving WorkItem #{row['id']}"
-      puts resp.body
+      @log.write("Error saving WorkItem #{row['id']}\n\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
