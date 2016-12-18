@@ -1,3 +1,9 @@
+# encoding: utf-8
+#
+# DO NOT DELETE THE ENCODING LINE ABOVE!!!
+# Without it, Ruby assumes ASCII, while our REST API and the SQLite DB
+# both assume UTF-8, and everything breaks.
+
 require 'json'
 require 'net/http'
 require 'openssl'
@@ -15,11 +21,12 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("solr_dump/fedora_export.db")
+    @db = SQLite3::Database.new("/mnt/aptrust/data/solr_dump.db")
     @db.results_as_hash = true
+    @db.execute('PRAGMA encoding = "UTF-8"')
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    #@base_url = 'https://demo.aptrust.org:443'
+    # @base_url = 'https://demo.aptrust.org:443'
     @base_url = 'http://localhost:3000'
     @id_for_name = {}
   end
@@ -42,8 +49,13 @@ class APIImporter
     query = "SELECT id, identifier, title, description, alt_identifier, " +
       "access, bag_name, institution_id, state FROM intellectual_objects"
     query += " limit #{limit}" if limit
-    @db.execute(query) do |row|
-      pid = row['id']
+    if @obj_query.nil?
+      @obj_query = @db.prepare(query)
+    end
+    result_set = @obj_query.execute
+    result_set.each_hash do |row|
+      pid = row['id'].strip.force_encoding('UTF-8')
+      puts "pid encoding is #{pid.encoding}"
       id = import_object(row)
       @new_id_for[pid] = id
       @id_for_name[row['identifier']] = id
@@ -88,7 +100,11 @@ class APIImporter
     query = "select date_time from premis_events_solr " +
       "where intellectual_object_id = ? and event_type = 'ingest' " +
       "and generic_file_identifier = '' order by date_time desc limit 1"
-    @db.execute(query, object_pid) do |row|
+    if @ctime_query.nil?
+      @ctime_query = @db.prepare(query)
+    end
+    result_set = @ctime_query.execute(object_pid)
+    result_set.each_hash do |row|
       timestamp = row['date_time']
     end
     timestamp
@@ -99,7 +115,11 @@ class APIImporter
     query = "select etag from processed_items where object_identifier = ? " +
       "and action = 'Ingest' and status = 'Success' " +
       "order by updated_at desc limit 1"
-    @db.execute(query, object_pid) do |row|
+    if @etag_query.nil?
+      @etag_query = @db.prepare(query)
+    end
+    result_set = @etag_query.execute(object_pid)
+    result_set.each_hash do |row|
       etag = row['etag']
     end
     etag
@@ -113,7 +133,11 @@ class APIImporter
     query = "select outcome_detail from premis_events_solr " +
       "where intellectual_object_id = ? and outcome_information like 'DPN%' " +
       "order by date_time desc limit 1"
-    @db.execute(query, object_pid) do |row|
+    if @uuid_query.nil?
+      @uuid_query = @db.prepare(query)
+    end
+    result_set = @uuid_query.execute(object_pid)
+    result_set.each_hash do |row|
       dpn_url = row['outcome_information']
     end
     if !dpn_url.nil?
@@ -130,10 +154,15 @@ class APIImporter
   # whose files we want to import. Param obj_identifier is
   # the intellectual object identifier. E.g. "test.edu/photo_collection"
   def import_files(obj_pid, obj_identifier)
+    puts "... checking files for #{obj_pid} (#{obj_identifier})"
     query = "SELECT id, file_format, uri, size, intellectual_object_id, " +
       "identifier, created_at, updated_at FROM generic_files " +
       "WHERE intellectual_object_id = ?"
-    @db.execute(query, obj_pid) do |row|
+    if @file_query.nil?
+      @file_query = @db.prepare(query)
+    end
+    result_set = @file_query.execute(obj_pid)
+    result_set.each_hash do |row|
       pid = row['id']
       id = import_file(row, obj_identifier)
       @new_id_for[pid] = id
@@ -148,6 +177,7 @@ class APIImporter
   # Param obj_identifier is the identifier of this
   # file's parent object. E.g. "test.edu/photo_collection"
   def import_file(row, obj_identifier)
+    puts "Importing file #{row['identifier']}"
     obj_id = @new_id_for[row['intellectual_object_id']]
     gf = {}
     gf['generic_file[file_format]'] = row['file_format']
@@ -177,7 +207,11 @@ class APIImporter
   def import_checksums(gf_pid, gf_identifier)
     query = "SELECT algorithm, datetime, digest, generic_file_id " +
       "FROM checksums where generic_file_id = ?"
-    @db.execute(query, gf_pid) do |row|
+    if @checksum_query.nil?
+      @checksum_query = @db.prepare(query)
+    end
+    result_set = @checksum_query.execute(gf_pid)
+    result_set.each_hash do |row|
       id = import_checksum(row, gf_identifier)
       puts "    Saved checksum #{row['algorithm']} #{row['digest']}"
     end
@@ -213,7 +247,11 @@ class APIImporter
       "outcome, outcome_detail, outcome_information, " +
       "object, agent, generic_file_id, generic_file_identifier " +
       "from premis_events_solr where intellectual_object_id = ?"
-    @db.execute(query, obj_pid) do |row|
+    if @events_query.nil?
+      @events_query = @db.prepare(query)
+    end
+    result_set = @events_query.execute(obj_pid)
+    result_set.each_hash do |row|
       id = import_event(row, obj_identifier)
       puts "    Saved event #{row['event_type']} for #{row['identifier']} with id #{id}"
     end
@@ -259,7 +297,11 @@ class APIImporter
       "generic_file_identifier, state, node, pid, needs_admin_review " +
       "FROM processed_items"
     query += " limit #{how_many}" if how_many
-    @db.execute(query) do |row|
+    if @work_items_query.nil?
+      @work_items_query = @db.prepare(query)
+    end
+    result_set = @work_items_query.execute
+    result_set.each_hash do |row|
       id = import_work_item(row)
       puts "Saved ProcessedItem #{row['id']} as WorkItem #{id}"
       # Save state only for problem items.
@@ -346,7 +388,11 @@ class APIImporter
     # Get Solr institution pids from the SQL db.
     pid_for = {}
     query = "select id, identifier from institutions"
-    @db.execute(query) do |row|
+    if @inst_query.nil?
+      @inst_query = @db.prepare(query)
+    end
+    result_set = @inst_query.execute
+    result_set.each_hash do |row|
       # Sample entry: pids['miami.edu'] = 'aptrust-test:350660'
       pid_for[row['identifier']] = row['id']
       @name_of[row['id']] = row['identifier']
