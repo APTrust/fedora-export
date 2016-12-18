@@ -25,6 +25,7 @@ class APIImporter
   end
 
   def create_indexes
+    puts "Creating SQLite indexes"
     @db.execute("create index if not exists ix_gf_obj_id " +
                 "on generic_files(intellectual_object_id)")
     @db.execute("create index if not exists ix_cs_gf_id " +
