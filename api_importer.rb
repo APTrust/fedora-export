@@ -21,15 +21,26 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @log = File.open('/mnt/aptrust/data/import.log', 'w')
-    @db = SQLite3::Database.new("/mnt/aptrust/data/solr_dump.db")
+    @db = SQLite3::Database.new("fedora_export.db")
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
     # @base_url = 'https://demo.aptrust.org:443'
     @base_url = 'http://localhost:3000'
+    @batch_size = 100
     @id_for_name = {}
+  end
+
+  # Run the import job. If limit is specified (an integer),
+  # this will import only the specified number of objects
+  # and work items.
+  def run(limit)
+    @log = File.open('import.log', 'w')
+    create_indexes
+    load_institutions
+    import_objects(limit)
+    import_work_items(limit)
     @log.close
   end
 
@@ -57,12 +68,11 @@ class APIImporter
     result_set = @obj_query.execute
     result_set.each_hash do |row|
       pid = row['id'].strip.force_encoding('UTF-8')
-      puts "pid encoding is #{pid.encoding}"
       id = import_object(row)
       @new_id_for[pid] = id
       @id_for_name[row['identifier']] = id
-      import_files(pid, row['identifier'])
-      import_events(pid, row['identifier'])
+      import_files(pid, row['identifier'], id)
+      import_object_level_events(pid, row['identifier'])
       puts "Saved object #{row['identifier']} with id #{id}"
     end
   end
@@ -155,8 +165,9 @@ class APIImporter
   # Param obj_pid is the Solr pid of the IntellectualObject
   # whose files we want to import. Param obj_identifier is
   # the intellectual object identifier. E.g. "test.edu/photo_collection"
-  def import_files(obj_pid, obj_identifier)
-    puts "... checking files for #{obj_pid} (#{obj_identifier})"
+  # Param new_obj_id is the numeric primary key of the
+  # intellectual object in pharos.
+  def import_files(obj_pid, obj_identifier, new_obj_id)
     query = "SELECT id, file_format, uri, size, intellectual_object_id, " +
       "identifier, created_at, updated_at FROM generic_files " +
       "WHERE intellectual_object_id = ?"
@@ -164,95 +175,118 @@ class APIImporter
       @file_query = @db.prepare(query)
     end
     result_set = @file_query.execute(obj_pid)
-    result_set.each_hash do |row|
-      pid = row['id']
-      id = import_file(row, obj_identifier)
-      @new_id_for[pid] = id
-      @id_for_name[row['identifier']] = id
-      import_checksums(pid, row['identifier'])
-      puts "  Saved file #{row['identifier']} with id #{id}"
+    while true
+      files = get_file_batch(result_set, obj_identifier)
+      break if files.count == 0
+      save_file_batch(files, new_obj_id)
     end
   end
 
-  # Import a single GenericFile through the REST API.
-  # Param row is a row of GenericFile data from the SQL db.
-  # Param obj_identifier is the identifier of this
-  # file's parent object. E.g. "test.edu/photo_collection"
-  def import_file(row, obj_identifier)
-    puts "Importing file #{row['identifier']}"
-    obj_id = @new_id_for[row['intellectual_object_id']]
-    gf = {}
-    gf['generic_file[file_format]'] = row['file_format']
-    gf['generic_file[uri]'] = row['uri']
-    gf['generic_file[size]'] = row['size']
-    gf['generic_file[intellectual_object_id]'] = obj_id
-    gf['generic_file[identifier]'] = row['identifier']
-    gf['generic_file[state]'] = row['state']
-    gf['generic_file[created_at]'] = row['created_at']
-    gf['generic_file[updated_at]'] = row['updated_at']
-
-    escaped_identifier = URI.escape(obj_identifier).gsub('/', '%2F')
-    url = "#{@base_url}/files/#{escaped_identifier}"
-    resp = api_post(url, gf)
+  # Saves a batch of files, with events and checksums,
+  # through the REST API. Param files is a list of generic
+  # files, and new_object_id is the new primary key
+  # identifier of the IntellectualObject in Pharos (integer).
+  def save_file_batch(files, new_obj_id)
+    url = "#{@base_url}/api/v2/files/#{new_obj_id}/create_batch"
+    resp = api_post_json(url, files.to_json)
     if resp.code != '201'
-      @log.write("Error saving file #{row['identifier']}\n\n")
+      @log.write("Error saving #{files.count} files #{files[0]['identifier']}...\n\n")
       @log.write(resp.body)
       exit(1)
     end
-    data = JSON.parse(resp.body)
-    return data['id']
   end
 
-  # Import checksums through the REST API.
+  def get_file_batch(result_set, obj_identifier)
+    count = 0
+    files = []
+    result_set.each_hash do |row|
+      files.push(get_file(row, obj_identifier))
+      count += 1
+      break if count == @batch_size
+    end
+    files
+  end
+
+  # Returns one file, along with its checksums and events.
+  # Param row is a row of GenericFile data from the SQL db.
+  # Param obj_identifier is the identifier of this
+  # file's parent object. E.g. "test.edu/photo_collection"
+  def get_file(row, obj_identifier)
+    gf_pid = row['id']
+    gf_identifier = row['identifier']
+    obj_id = @new_id_for[row['intellectual_object_id']]
+    gf = {}
+    gf['file_format'] = row['file_format']
+    gf['uri'] = row['uri']
+    gf['size'] = row['size']
+    gf['intellectual_object_id'] = obj_id
+    gf['identifier'] = gf_identifier
+    gf['state'] = row['state']
+    gf['created_at'] = row['created_at']
+    gf['updated_at'] = row['updated_at']
+    gf['checksums_attributes'] = get_checksums(gf_pid, gf_identifier)
+    gf['premis_events_attributes'] = get_file_events(gf_pid, obj_identifier)
+    gf
+  end
+
+  # Returns the events for the specified generic file.
+  # We don't have to batch these, because there are typically
+  # only 6-10 events per generic file. Some outliers may have
+  # 15 or so, but that's about as high as it goes.
+  def get_file_events(gf_pid, obj_identifier)
+    query = "select intellectual_object_id, institution_id, " +
+      "identifier, event_type, date_time, detail, " +
+      "outcome, outcome_detail, outcome_information, " +
+      "object, agent, generic_file_id, generic_file_identifier " +
+      "from premis_events_solr where generic_file_id = ?"
+    if @file_events_query.nil?
+      @file_events_query = @db.prepare(query)
+    end
+    result_set = @file_events_query.execute(gf_pid)
+    events = []
+    result_set.each_hash do |row|
+      events.push(get_event(row, obj_identifier))
+    end
+    events
+  end
+
+  # Returns the checksums for the specified generic file.
   # Param gf_pid is the pid of the GenericFile whose checksums
   # we want to save.
-  def import_checksums(gf_pid, gf_identifier)
+  def get_checksums(gf_pid, gf_identifier)
     query = "SELECT algorithm, datetime, digest, generic_file_id " +
       "FROM checksums where generic_file_id = ?"
     if @checksum_query.nil?
       @checksum_query = @db.prepare(query)
     end
+    checksums = []
     result_set = @checksum_query.execute(gf_pid)
     result_set.each_hash do |row|
-      id = import_checksum(row, gf_identifier)
-      puts "    Saved checksum #{row['algorithm']} #{row['digest']}"
+      cs = {}
+      cs['algorithm'] = row['algorithm']
+      cs['datetime'] = row['datetime']
+      cs['digest'] = row['digest']
+      checksums.push(cs)
     end
+    checksums
   end
 
-  # Import a single checksum through the REST API.
-  def import_checksum(row, gf_identifier)
-    cs = {}
-    cs['checksum[algorithm]'] = row['algorithm']
-    cs['checksum[datetime]'] = row['datetime']
-    cs['checksum[digest]'] = row['digest']
-
-    escaped_identifier = URI.escape(gf_identifier).gsub('/', '%2F')
-    url = "#{@base_url}/api/v2/checksums/#{escaped_identifier}"
-    resp = api_post(url, cs)
-    if resp.code != '201'
-      @log.write("Error saving checksum #{row['algorithm']} for #{gf_identifier}\n\n")
-      @log.write(resp.body)
-      exit(1)
-    end
-    data = JSON.parse(resp.body)
-    return data['id']
-  end
-
-  # Import Premis events through the REST API.
+  # Import object-level Premis events through the REST API.
   # Param obj_pid is the pid of the intellectual object
   # to which this event belongs (even if it's a file-level
   # event). Param obj_identifier is the intellectual
   # object identifier.
-  def import_events(obj_pid, obj_identifier)
+  def import_object_level_events(obj_pid, obj_identifier)
     query = "select intellectual_object_id, institution_id, " +
       "identifier, event_type, date_time, detail, " +
       "outcome, outcome_detail, outcome_information, " +
       "object, agent, generic_file_id, generic_file_identifier " +
-      "from premis_events_solr where intellectual_object_id = ?"
-    if @events_query.nil?
-      @events_query = @db.prepare(query)
+      "from premis_events_solr where generic_file_id is null and " +
+      "intellectual_object_id = ?"
+    if @obj_events_query.nil?
+      @obj_events_query = @db.prepare(query)
     end
-    result_set = @events_query.execute(obj_pid)
+    result_set = @obj_events_query.execute(obj_pid)
     result_set.each_hash do |row|
       id = import_event(row, obj_identifier)
       puts "    Saved event #{row['event_type']} for #{row['identifier']} with id #{id}"
@@ -261,6 +295,21 @@ class APIImporter
 
   # Import a single Premis event through the REST API.
   def import_event(row, obj_identifier)
+    event = get_event(row, obj_identifier)
+    url = "#{@base_url}/api/v2/events"
+    resp = api_post_json(url, event.to_json)
+    if resp.code != '201'
+      @log.write("Error saving event #{event['identifier']}\n\n")
+      @log.write(resp.body)
+      exit(1)
+    end
+    data = JSON.parse(resp.body)
+    return data['id']
+  end
+
+  # Returns a single event, which may or may not have a
+  # generic_file_identifier.
+  def get_event(row, obj_identifier)
     obj_id = @new_id_for[row['intellectual_object_id']]
     gf_id = @new_id_for[row['generic_file_id']]
     inst_id = @new_id_for[row['institution_id']]
@@ -279,16 +328,7 @@ class APIImporter
     event['agent'] = row['agent']
     event['generic_file_identifier'] = row['generic_file_identifier']
     event['intellectual_object_identifier'] = obj_identifier
-
-    url = "#{@base_url}/api/v2/events"
-    resp = api_post_json(url, event.to_json)
-    if resp.code != '201'
-      @log.write("Error saving event #{event['identifier']}\n\n")
-      @log.write(resp.body)
-      exit(1)
-    end
-    data = JSON.parse(resp.body)
-    return data['id']
+    event
   end
 
   # Import all WorkItems through the REST API.
@@ -306,7 +346,6 @@ class APIImporter
     result_set.each_hash do |row|
       id = import_work_item(row)
       puts "Saved ProcessedItem #{row['id']} as WorkItem #{id}"
-      # Save state only for problem items.
       if !row['state'].nil? && row['state'] != ''
         state_id = import_work_item_state(row, id)
         puts "  Saved state for ProcessedItem #{row['id']} as WorkItemState #{state_id}"
@@ -481,8 +520,5 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
-  importer.create_indexes
-  importer.load_institutions
-  importer.import_objects(nil)
-  importer.import_work_items(nil)
+  importer.run(nil)
 end
