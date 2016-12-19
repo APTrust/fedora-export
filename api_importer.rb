@@ -91,7 +91,7 @@ class APIImporter
     obj['intellectual_object[state]'] = row['state']
 
     obj['intellectual_object[institution_id]'] = @new_id_for[row['institution_id']]
-    obj['intellectual_object[etag]'] = get_etag(row['id'])
+    obj['intellectual_object[etag]'] = get_etag(row['identifier'])
     obj['intellectual_object[created_at]'] = get_obj_create_time(row['id'])
     obj['intellectual_object[dpn_uuid]'] = get_dpn_uuid(row['id'])
 
@@ -122,7 +122,7 @@ class APIImporter
     timestamp
   end
 
-  def get_etag(object_pid)
+  def get_etag(object_identifier)
     etag = nil
     query = "select etag from processed_items where object_identifier = ? " +
       "and action = 'Ingest' and status = 'Success' " +
@@ -130,7 +130,7 @@ class APIImporter
     if @etag_query.nil?
       @etag_query = @db.prepare(query)
     end
-    result_set = @etag_query.execute(object_pid)
+    result_set = @etag_query.execute(object_identifier)
     result_set.each_hash do |row|
       etag = row['etag']
     end
