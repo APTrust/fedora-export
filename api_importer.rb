@@ -21,13 +21,13 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("fedora_export.db")
+    @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    # @base_url = 'https://demo.aptrust.org:443'
-    @base_url = 'http://localhost:3000'
+    @base_url = 'https://demo.aptrust.org:443'
+    # @base_url = 'http://localhost:3000'
     @batch_size = 100
     @id_for_name = {}
   end
@@ -35,11 +35,11 @@ class APIImporter
   # Run the import job. If limit is specified (an integer),
   # this will import only the specified number of objects
   # and work items.
-  def run(limit)
+  def run(limit, offset)
     @log = File.open('import.log', 'w')
     create_indexes
     load_institutions
-    import_objects(limit)
+    import_objects(limit, offset)
     import_work_items(limit)
     @log.close
   end
@@ -58,10 +58,11 @@ class APIImporter
                 "on premis_events_solr(generic_file_id)")
   end
 
-  def import_objects(limit)
+  def import_objects(limit, offset)
     query = "SELECT id, identifier, title, description, alt_identifier, " +
       "access, bag_name, institution_id, state FROM intellectual_objects"
-    query += " limit #{limit}" if limit
+    query += " limit #{limit}" unless limit.nil?
+    query += " offset #{offset}" unless offset.nil?
     if @obj_query.nil?
       @obj_query = @db.prepare(query)
     end
@@ -520,5 +521,5 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
-  importer.run(nil)
+  importer.run(-1, 0)
 end
