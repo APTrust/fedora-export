@@ -21,15 +21,28 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
-    @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
+    @db = SQLite3::Database.new("solr_dump/export_20161219.1.db")
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    @base_url = 'https://demo.aptrust.org:443'
-    # @base_url = 'http://localhost:3000'
+    #@base_url = 'https://demo.aptrust.org:443'
+    @base_url = 'http://localhost:3000'
     @batch_size = 100
     @id_for_name = {}
+
+    # Map APTrust 1.0 event types to correct LOC PREMIS event types.
+    # The only event type not in the LOC standard is 'access assignment',
+    # but we still have to record that.
+    @event_type_map = {
+      'access_assignment' => 'access assignment',
+      'delete' => 'deletion',
+      'fixity_check' => 'fixity check',
+      'fixity_generation' => 'message digest calculation',
+      'identifier_assignment' => 'identifier assignment',
+      'ingest' => 'ingestion'
+    }
+
   end
 
   # Run the import job. If limit is specified (an integer),
@@ -314,12 +327,14 @@ class APIImporter
     obj_id = @new_id_for[row['intellectual_object_id']]
     gf_id = @new_id_for[row['generic_file_id']]
     inst_id = @new_id_for[row['institution_id']]
+    new_event_type = transform_event_type(row['event_type'], row['outcome_detail'])
+    raise "No event type for #{row[identifier]}" if new_event_type.nil?
     event = {}
     event['intellectual_object_id'] = obj_id
     event['generic_file_id'] = gf_id
     event['institution_id'] = inst_id
     event['identifier'] = row['identifier']
-    event['event_type'] = row['event_type']
+    event['event_type'] = new_event_type
     event['date_time'] = row['date_time']
     event['detail'] = row['detail']
     event['outcome'] = ucfirst(row['outcome'])
@@ -426,6 +441,21 @@ class APIImporter
     string
   end
 
+  # Transform non-standard APTrust 1.0 PREMIS event types to
+  # LOC standard event types. There's one special case: replication
+  # in the old system was recorded as a second ingest.
+  def transform_event_type(event_type, outcome_detail)
+    if event_type == 'ingest' && outcome_detail.include?('aptrust.preservation.oregon')
+      return 'replication'
+    end
+    return @event_type_map[event_type]
+  end
+
+  # Load the institutions from Pharos. This obviously assumes the
+  # institutions were loaded before this script runs. We just need
+  # to map Solr pids, which are in our SQLite db, to Institution
+  # ids in Pharos, so we can insert objects in Pharos that have an
+  # institution_id foreign key.
   def load_institutions
     # Get Solr institution pids from the SQL db.
     pid_for = {}
@@ -444,8 +474,8 @@ class APIImporter
     url = @base_url + '/api/v2/institutions'
     resp = api_get(url, nil)
     if resp.code != '200'
-      puts "Error getting institutions from Pharos"
-      puts resp.body
+      @log.write("Error getting institutions from Pharos\n")
+      @log.write(resp.body)
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -521,5 +551,5 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
-  importer.run(-1, 0)
+  importer.run(100, 0)
 end
