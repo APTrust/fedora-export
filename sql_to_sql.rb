@@ -47,10 +47,10 @@ class SqlToSql
   # and work items.
   def run(limit, offset)
     @log = File.open('import.log', 'w')
-    #create_indexes
-    #import_institutions
-    #import_users
-    #import_objects(limit, offset)
+    create_indexes
+    import_institutions
+    import_users
+    import_objects(limit, offset)
     import_work_items(limit, offset)
     @log.close
   end
