@@ -21,13 +21,19 @@ class APIImporter
 
   def initialize(api_key)
     @api_key = api_key
+
+    # Local
+    @base_url = 'https://demo.aptrust.org:443'
     @db = SQLite3::Database.new("solr_dump/export_20161219.1.db")
+
+    # Demo Server
+    # @base_url = 'http://localhost:3000'
+    # @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
+
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
     @new_id_for = {} # Hash: key is old Solr pid, value is new numeric id
     @name_of = {} # Hash: key is Solr pid, value is institution domain name
-    #@base_url = 'https://demo.aptrust.org:443'
-    @base_url = 'http://localhost:3000'
     @batch_size = 100
     @id_for_name = {}
 
@@ -354,7 +360,7 @@ class APIImporter
       "bag_date, date, retry, reviewed, object_identifier, " +
       "generic_file_identifier, state, node, pid, needs_admin_review " +
       "FROM processed_items"
-    query += " limit #{how_many}" if how_many
+    query += " limit #{how_many}" if how_many && how_many > 0
     if @work_items_query.nil?
       @work_items_query = @db.prepare(query)
     end
@@ -371,12 +377,12 @@ class APIImporter
 
   # Import a single WorkItem through the REST API.
   def import_work_item(row)
-    inst_name = nil
-    if !row['object_identifier'].nil? && row['object_identifier'] != ''
-      inst_name = row['object_identifier'].split('/')[0]
-    elsif !row['bucket'].nil? && row['bucket'] != ''
-      inst_name = row['bucket'].sub('aptrust.receiving.test.', '')
-    end
+    # inst_name = nil
+    # if !row['object_identifier'].nil? && row['object_identifier'] != ''
+    #   inst_name = row['object_identifier'].split('/')[0]
+    # elsif !row['bucket'].nil? && row['bucket'] != ''
+    #   inst_name = row['bucket'].sub('aptrust.receiving.test.', '')
+    # end
     item = {}
     item['created_at'] = row['created_at']
     item['updated_at'] = row['updated_at']
@@ -399,7 +405,7 @@ class APIImporter
     item['node'] = row['node']
     item['pid'] = row['pid']
     item['needs_admin_review'] = row['needs_admin_review']
-    item['institution_id'] = @id_for_name[inst_name]
+    item['institution_id'] = @id_for_name[row['institution']]
     item['queued_at'] = nil
     item['size'] = nil
     item['stage_started_at'] = nil
@@ -408,7 +414,7 @@ class APIImporter
     resp = api_post_json(url, item.to_json)
     if resp.code != '201'
       @log.write("Error saving WorkItem #{item['id']}\n\n")
-      @log.write(resp.body)
+      @log.write(resp.body + "\n")
       exit(1)
     end
     data = JSON.parse(resp.body)
@@ -551,5 +557,5 @@ if __FILE__ == $0
     exit(1)
   end
   importer = APIImporter.new(api_key)
-  importer.run(100, 0)
+  importer.run(-1, 0)
 end
