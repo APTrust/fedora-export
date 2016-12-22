@@ -19,16 +19,20 @@ require 'sqlite3'
 # correctness and robustness under load.
 class APIImporter
 
-  def initialize(api_key)
+  def initialize(api_key, where_are_we)
     @api_key = api_key
 
-    # Local
-    @base_url = 'https://demo.aptrust.org:443'
-    @db = SQLite3::Database.new("solr_dump/export_20161219.1.db")
-
-    # Demo Server
-    # @base_url = 'http://localhost:3000'
-    # @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
+    if where_are_we == 'demo'
+      @base_url = 'https://demo.aptrust.org:443'
+      @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
+    elsif where_are_we == 'local'
+      @base_url = 'http://localhost:3000'
+      # @db = SQLite3::Database.new("solr_dump/export_20161219.1.db")
+      @db = SQLite3::Database.new("solr_dump/fedora_export.db")
+    else
+      puts 'Server must be demo or local'
+      exit(1)
+    end
 
     @db.results_as_hash = true
     @db.execute('PRAGMA encoding = "UTF-8"')
@@ -59,7 +63,7 @@ class APIImporter
     create_indexes
     load_institutions
     import_objects(limit, offset)
-    import_work_items(limit)
+    import_work_items(limit, offset)
     @log.close
   end
 
@@ -119,9 +123,10 @@ class APIImporter
     url = "#{@base_url}/api/v2/objects/#{inst}.json"
     resp = api_post(url, obj)
     if resp.code != '201'
-      @log.write("Error saving object #{obj['intellectual_object[identifier]']}\n\n")
-      @log.write(resp.body)
-      exit(1)
+      @log.write("Error saving object #{obj['intellectual_object[identifier]']}\n")
+      @log.write(obj.inspect)
+      @log.write("\n" + resp.body + "\n")
+      #exit(1)
     end
     data = JSON.parse(resp.body)
     return data['id']
@@ -210,9 +215,10 @@ class APIImporter
     url = "#{@base_url}/api/v2/files/#{new_obj_id}/create_batch"
     resp = api_post_json(url, files.to_json)
     if resp.code != '201'
-      @log.write("Error saving #{files.count} files #{files[0]['identifier']}...\n\n")
-      @log.write(resp.body)
-      exit(1)
+      @log.write("Error saving #{files.count} files #{files[0]['identifier']}...\n")
+      @log.write(files.inspect)
+      @log.write("\n" + resp.body + "\n")
+      #exit(1)
     end
   end
 
@@ -319,9 +325,10 @@ class APIImporter
     url = "#{@base_url}/api/v2/events"
     resp = api_post_json(url, event.to_json)
     if resp.code != '201'
-      @log.write("Error saving event #{event['identifier']}\n\n")
-      @log.write(resp.body)
-      exit(1)
+      @log.write("Error saving event #{event['identifier']}\n")
+      @log.write(row.inspect)
+      @log.write("\n" + resp.body + "\n")
+      #exit(1)
     end
     data = JSON.parse(resp.body)
     return data['id']
@@ -354,13 +361,14 @@ class APIImporter
   end
 
   # Import all WorkItems through the REST API.
-  def import_work_items(how_many)
+  def import_work_items(limit, offset)
     query = "SELECT id, created_at, updated_at, name, etag, bucket, " +
       "user, institution, note, action, stage, status, outcome, " +
       "bag_date, date, retry, reviewed, object_identifier, " +
       "generic_file_identifier, state, node, pid, needs_admin_review " +
       "FROM processed_items"
-    query += " limit #{how_many}" if how_many && how_many > 0
+    query += " limit #{limit}" if limit
+    query += " offset #{offset}" if offset
     if @work_items_query.nil?
       @work_items_query = @db.prepare(query)
     end
@@ -407,9 +415,14 @@ class APIImporter
     url = "#{@base_url}/api/v2/items"
     resp = api_post_json(url, item.to_json)
     if resp.code != '201'
-      @log.write("Error saving WorkItem #{item['id']}\n\n")
-      @log.write(resp.body + "\n")
-      exit(1)
+      @log.write("Error saving WorkItem #{item['id']}\n")
+      @log.write(item.inspect)
+      if resp.body.length < 8000
+        @log.write("\n" + resp.body + "\n")
+      else
+        @log.write("\nResponse body too long. Check rails logs.\n")
+      end
+      #exit(1)
     end
     data = JSON.parse(resp.body)
     return data['id']
@@ -425,9 +438,10 @@ class APIImporter
     url = "#{@base_url}/api/v2/item_state"
     resp = api_post_json(url, state.to_json)
     if resp.code != '201'
-      @log.write("Error saving WorkItem #{row['id']}\n\n")
-      @log.write(resp.body)
-      exit(1)
+      @log.write("Error saving WorkItemState #{row['id']}\n")
+      @log.write("row['name']: #{row['state'].length}")
+      @log.write("\n" + resp.body + "\n")
+      #exit(1)
     end
     data = JSON.parse(resp.body)
     return data['id']
@@ -544,12 +558,14 @@ class APIImporter
 end
 
 if __FILE__ == $0
-  api_key = ARGV[0]
-  if api_key.nil?
-    puts "Usage: api_importer.rb <api_key>"
-    puts "API key is the admin API key for the demo server"
+  where_are_we = ARGV[0]
+  api_key = ARGV[1] if ARGV.count > 1
+  if api_key.nil? || where_are_we.nil?
+    puts "Usage: api_importer.rb <server> <api_key>"
+    puts "Server must be either local or demo."
+    puts "API key is the admin API key for the local or demo server"
     exit(1)
   end
-  importer = APIImporter.new(api_key)
+  importer = APIImporter.new(api_key, where_are_we)
   importer.run(-1, 0)
 end
