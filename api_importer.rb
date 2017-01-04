@@ -8,6 +8,7 @@ require 'json'
 require 'net/http'
 require 'openssl'
 require 'sqlite3'
+require 'time'
 
 # APIImporter imports data from the SQLite database (which is a dump
 # of our old Fedora data) into Pharos through the API. In order for
@@ -59,7 +60,8 @@ class APIImporter
   # this will import only the specified number of objects
   # and work items.
   def run(limit, offset)
-    @log = File.open('import.log', 'w')
+    timestamp = Time.now.utc.iso8601.gsub(/\W/, '')
+    @log = File.open("import_#{timestamp}.log", 'w')
     create_indexes
     load_institutions
     import_objects(limit, offset)
