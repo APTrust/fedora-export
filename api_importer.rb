@@ -307,7 +307,7 @@ class APIImporter
       "identifier, event_type, date_time, detail, " +
       "outcome, outcome_detail, outcome_information, " +
       "object, agent, generic_file_id, generic_file_identifier " +
-      "from premis_events_solr where generic_file_id is null and " +
+      "from premis_events_solr where generic_file_id = '' and " +
       "intellectual_object_id = ?"
     if @obj_events_query.nil?
       @obj_events_query = @db.prepare(query)
