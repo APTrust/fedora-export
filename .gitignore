@@ -2,4 +2,4 @@
 *.db
 solr_dump/
 .ruby-version
-import.log
+*.log
