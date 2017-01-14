@@ -26,12 +26,15 @@ class APIImporter
     if where_are_we == 'demo'
       @base_url = 'https://demo.aptrust.org:443'
       @db = SQLite3::Database.new("/mnt/aptrust/data/export_20161219.1.db")
+    elsif where_are_we == 'production'
+      @base_url = 'https://repo.aptrust.org'
+      @db = SQLite3::Database.new("/mnt/aptrust/export/production_20170112.db")
     elsif where_are_we == 'local'
       @base_url = 'http://localhost:3000'
       # @db = SQLite3::Database.new("solr_dump/export_20161219.1.db")
       @db = SQLite3::Database.new("solr_dump/fedora_export.db")
     else
-      puts 'Server must be demo or local'
+      puts 'Server must be demo, production, or local'
       exit(1)
     end
 
